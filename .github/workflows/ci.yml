@@ -17,29 +17,18 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
-      - name: test basic
-        run: |
-          npm install
-          npm run test:basic
-  advacned:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: latest
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'pnpm'
-      - name: advanced-test
-        run: |
+      - run: |
           pnpm install
-          pnpm run test:advanced
-  e2e:
+          pnpm exec playwright install
+          pnpm run test:e2e:basic
+  advanced:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
@@ -52,10 +41,10 @@ jobs:
           version: latest
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'pnpm'
       - name: Install dependencies
         run: |
           pnpm install
-          npx playwright install --with-deps
-          pnpm run test:e2e
+          pnpm exec playwright install
+          pnpm run test:e2e:advanced

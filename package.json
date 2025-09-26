@@ -1,5 +1,5 @@
 {
-  "name": "front-6th-chapter1-1",
+  "name": "front-chapter1-1",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,11 +10,9 @@
     "lint:fix": "eslint --fix",
     "prettier:write": "prettier --write ./src",
     "preview": "vite preview",
-    "test": "vitest",
-    "test:basic": "vitest basic.test.js",
-    "test:advanced": "vitest advanced",
-    "test:ui": "vitest --ui",
     "test:e2e": "playwright test",
+    "test:e2e:basic": "playwright test basic",
+    "test:e2e:advanced": "playwright test advanced",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "npx playwright show-report",
     "test:generate": "playwright codegen localhost:5173",
@@ -28,9 +26,11 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.16.0",
-    "@playwright/test": "^1.49.1",
+    "@playwright/test": "latest",
+    "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/user-event": "^14.5.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@vitest/coverage-v8": "latest",
     "@vitest/ui": "^2.1.8",
     "eslint": "^9.16.0",
     "eslint-config-prettier": "^9.1.0",
@@ -42,7 +42,7 @@
     "msw": "^2.10.2",
     "prettier": "^3.4.2",
     "vite": "npm:rolldown-vite@latest",
-    "vitest": "^2.1.8"
+    "vitest": "latest"
   },
   "msw": {
     "workerDirectory": [

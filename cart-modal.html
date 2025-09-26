@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>상품 쇼핑몰</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/src/styles.css">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: "#3b82f6",
+            secondary: "#6b7280"
+          }
+        }
+      }
+    };
+  </script>
+</head>
+
+<body class="bg-gray-50">
+<div id="root">
+  <div class="min-h-screen bg-gray-50">
+    <header class="bg-white shadow-sm sticky top-0 z-40">
+      <div class="max-w-md mx-auto px-4 py-4">
+        <div class="flex items-center justify-between">
+          <h1 class="text-xl font-bold text-gray-900">
+            <a href="/" data-link="">쇼핑몰</a>
+          </h1>
+          <div class="flex items-center space-x-2">
+            <!-- 장바구니 아이콘 -->
+            <button id="cart-icon-btn" class="relative p-2 text-gray-700 hover:text-gray-900 transition-colors">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M3 3h2l.4 2M7 13h10l4-8H5.4m2.6 8L6 2H3m4 11v6a1 1 0 001 1h1a1 1 0 001-1v-6M13 13v6a1 1 0 001 1h1a1 1 0 001-1v-6"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <main class="max-w-md mx-auto px-4 py-4">
+      <!-- 검색 및 필터 -->
+      <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
+        <!-- 검색창 -->
+        <div class="mb-4">
+          <div class="relative">
+            <input type="text" id="search-input" placeholder="상품명을 검색해보세요..." value="" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg
+            focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+              </svg>
+            </div>
+          </div>
+        </div>
+        <!-- 필터 옵션 -->
+        <div class="space-y-3">
+          <!-- 카테고리 필터 -->
+          <div class="space-y-2">
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-gray-600">카테고리:</label>
+              <button data-breadcrumb="reset" class="text-xs hover:text-blue-800 hover:underline">전체</button>
+            </div>
+            <!-- 1depth 카테고리 -->
+            <div class="flex flex-wrap gap-2">
+              <button data-category1="생활/건강" class="category1-filter-btn text-left px-3 py-2 text-sm rounded-md border transition-colors
+         bg-white border-gray-300 text-gray-700 hover:bg-gray-50">
+                생활/건강
+              </button>
+              <button data-category1="디지털/가전" class="category1-filter-btn text-left px-3 py-2 text-sm rounded-md border transition-colors
+         bg-white border-gray-300 text-gray-700 hover:bg-gray-50">
+                디지털/가전
+              </button>
+            </div>
+            <!-- 2depth 카테고리 -->
+          </div>
+          <!-- 기존 필터들 -->
+          <div class="flex gap-2 items-center justify-between">
+            <!-- 페이지당 상품 수 -->
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-gray-600">개수:</label>
+              <select id="limit-select"
+                      class="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <option value="10">
+                  10개
+                </option>
+                <option value="20" selected="">
+                  20개
+                </option>
+                <option value="50">
+                  50개
+                </option>
+                <option value="100">
+                  100개
+                </option>
+              </select>
+            </div>
+            <!-- 정렬 -->
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-gray-600">정렬:</label>
+              <select id="sort-select" class="text-sm border border-gray-300 rounded px-2 py-1
+               focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <option value="price_asc" selected="">가격 낮은순</option>
+                <option value="price_desc">가격 높은순</option>
+                <option value="name_asc">이름순</option>
+                <option value="name_desc">이름 역순</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 상품 목록 -->
+      <div class="mb-6">
+        <div>
+          <!-- 상품 개수 정보 -->
+          <div class="mb-4 text-sm text-gray-600">
+            총 <span class="font-medium text-gray-900">340개</span>의 상품
+          </div>
+          <!-- 상품 그리드 -->
+          <div class="grid grid-cols-2 gap-4 mb-6" id="products-grid">
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden product-card"
+                 data-product-id="85067212996">
+              <!-- 상품 이미지 -->
+              <div class="aspect-square bg-gray-100 overflow-hidden cursor-pointer product-image">
+                <img src="https://shopping-phinf.pstatic.net/main_8506721/85067212996.1.jpg"
+                     alt="PVC 투명 젤리 쇼핑백 1호 와인 답례품 구디백 비닐 손잡이 미니 간식 선물포장"
+                     class="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                     loading="lazy">
+              </div>
+              <!-- 상품 정보 -->
+              <div class="p-3">
+                <div class="cursor-pointer product-info mb-3">
+                  <h3 class="text-sm font-medium text-gray-900 line-clamp-2 mb-1">
+                    PVC 투명 젤리 쇼핑백 1호 와인 답례품 구디백 비닐 손잡이 미니 간식 선물포장
+                  </h3>
+                  <p class="text-xs text-gray-500 mb-2"></p>
+                  <p class="text-lg font-bold text-gray-900">
+                    220원
+                  </p>
+                </div>
+                <!-- 장바구니 버튼 -->
+                <button class="w-full bg-blue-600 text-white text-sm py-2 px-3 rounded-md
+             hover:bg-blue-700 transition-colors add-to-cart-btn" data-product-id="85067212996">
+                  장바구니 담기
+                </button>
+              </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden product-card"
+                 data-product-id="86940857379">
+              <!-- 상품 이미지 -->
+              <div class="aspect-square bg-gray-100 overflow-hidden cursor-pointer product-image">
+                <img src="https://shopping-phinf.pstatic.net/main_8694085/86940857379.1.jpg"
+                     alt="샷시 풍지판 창문 바람막이 베란다 문 틈막이 창틀 벌레 차단 샤시 방충망 틈새막이"
+                     class="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                     loading="lazy">
+              </div>
+              <!-- 상품 정보 -->
+              <div class="p-3">
+                <div class="cursor-pointer product-info mb-3">
+                  <h3 class="text-sm font-medium text-gray-900 line-clamp-2 mb-1">
+                    샷시 풍지판 창문 바람막이 베란다 문 틈막이 창틀 벌레 차단 샤시 방충망 틈새막이
+                  </h3>
+                  <p class="text-xs text-gray-500 mb-2">이지웨이건축자재</p>
+                  <p class="text-lg font-bold text-gray-900">
+                    230원
+                  </p>
+                </div>
+                <!-- 장바구니 버튼 -->
+                <button class="w-full bg-blue-600 text-white text-sm py-2 px-3 rounded-md
+             hover:bg-blue-700 transition-colors add-to-cart-btn" data-product-id="86940857379">
+                  장바구니 담기
+                </button>
+              </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden product-card"
+                 data-product-id="82094468339">
+              <!-- 상품 이미지 -->
+              <div class="aspect-square bg-gray-100 overflow-hidden cursor-pointer product-image">
+                <img src="https://shopping-phinf.pstatic.net/main_8209446/82094468339.4.jpg"
+                     alt="실리카겔 50g 습기제거제 제품 /산업 신발 의류 방습제"
+                     class="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                     loading="lazy">
+              </div>
+              <!-- 상품 정보 -->
+              <div class="p-3">
+                <div class="cursor-pointer product-info mb-3">
+                  <h3 class="text-sm font-medium text-gray-900 line-clamp-2 mb-1">
+                    실리카겔 50g 습기제거제 제품 /산업 신발 의류 방습제
+                  </h3>
+                  <p class="text-xs text-gray-500 mb-2"></p>
+                  <p class="text-lg font-bold text-gray-900">
+                    280원
+                  </p>
+                </div>
+                <!-- 장바구니 버튼 -->
+                <button class="w-full bg-blue-600 text-white text-sm py-2 px-3 rounded-md
+             hover:bg-blue-700 transition-colors add-to-cart-btn" data-product-id="82094468339">
+                  장바구니 담기
+                </button>
+              </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden product-card"
+                 data-product-id="86188464619">
+              <!-- 상품 이미지 -->
+              <div class="aspect-square bg-gray-100 overflow-hidden cursor-pointer product-image">
+                <img src="https://shopping-phinf.pstatic.net/main_8618846/86188464619.14.jpg"
+                     alt="두꺼운 고급 무지쇼핑백 종이쇼핑백 주문제작 소량 로고인쇄 선물용 종이가방 세로형1호"
+                     class="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                     loading="lazy">
+              </div>
+              <!-- 상품 정보 -->
+              <div class="p-3">
+                <div class="cursor-pointer product-info mb-3">
+                  <h3 class="text-sm font-medium text-gray-900 line-clamp-2 mb-1">
+                    두꺼운 고급 무지쇼핑백 종이쇼핑백 주문제작 소량 로고인쇄 선물용 종이가방 세로형1호
+                  </h3>
+                  <p class="text-xs text-gray-500 mb-2"></p>
+                  <p class="text-lg font-bold text-gray-900">
+                    350원
+                  </p>
+                </div>
+                <!-- 장바구니 버튼 -->
+                <button class="w-full bg-blue-600 text-white text-sm py-2 px-3 rounded-md
+             hover:bg-blue-700 transition-colors add-to-cart-btn" data-product-id="86188464619">
+                  장바구니 담기
+                </button>
+              </div>
+            </div>
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden product-card"
+                 data-product-id="82359253087">
+              <!-- 상품 이미지 -->
+              <div class="aspect-square bg-gray-100 overflow-hidden cursor-pointer product-image">
+                <img src="https://shopping-phinf.pstatic.net/main_8235925/82359253087.18.jpg"
+                     alt="방충망 셀프교체 미세먼지 롤 창문 모기장 알루미늄망 60cmX20cm"
+                     class="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                     loading="lazy">
+              </div>
+              <!-- 상품 정보 -->
+              <div class="p-3">
+                <div class="cursor-pointer product-info mb-3">
+                  <h3 class="text-sm font-medium text-gray-900 line-clamp-2 mb-1">
+                    방충망 셀프교체 미세먼지 롤 창문 모기장 알루미늄망 60cmX20cm
+                  </h3>
+                  <p class="text-xs text-gray-500 mb-2"></p>
+                  <p class="text-lg font-bold text-gray-900">
+                    420원
+                  </p>
+                </div>
+                <!-- 장바구니 버튼 -->
+                <button class="w-full bg-blue-600 text-white text-sm py-2 px-3 rounded-md
+             hover:bg-blue-700 transition-colors add-to-cart-btn" data-product-id="82359253087">
+                  장바구니 담기
+                </button>
+              </div>
+            </div>
+            <!-- 로딩 스켈레톤 -->
+          </div>
+          <!-- 무한 스크롤 로딩 -->
+          <!-- 더 이상 로드할 상품이 없음 -->
+          <!-- 무한 스크롤 트리거 -->
+          <div id="scroll-trigger" class="h-4"></div>
+        </div>
+      </div>
+    </main>
+    <div class="fixed inset-0 z-50 overflow-y-auto cart-modal">
+      <!-- 배경 오버레이 -->
+      <div class="fixed inset-0 bg-black bg-opacity-50 transition-opacity cart-modal-overlay"></div>
+      <!-- 모달 컨테이너 -->
+      <div class="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
+        <div
+          class="relative bg-white rounded-t-lg sm:rounded-lg shadow-xl w-full max-w-md sm:max-w-lg max-h-[90vh] overflow-hidden">
+          <!-- 헤더 -->
+          <div class="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+            <h2 class="text-lg font-bold text-gray-900 flex items-center">
+              <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M3 3h2l.4 2M7 13h10l4-8H5.4m2.6 8L6 2H3m4 11v6a1 1 0 001 1h1a1 1 0 001-1v-6M13 13v6a1 1 0 001 1h1a1 1 0 001-1v-6"></path>
+              </svg>
+              장바구니
+            </h2>
+            <button id="cart-modal-close-btn" class="text-gray-400 hover:text-gray-600 p-1">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
+          </div>
+          <!-- 컨텐츠 -->
+          <div class="flex flex-col max-h-[calc(90vh-120px)]">
+            <!-- 빈 장바구니 -->
+            <div class="flex-1 flex items-center justify-center p-8">
+              <div class="text-center">
+                <div class="text-gray-400 mb-4">
+                  <svg class="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M3 3h2l.4 2M7 13h10l4-8H5.4m2.6 8L6 2H3m4 11v6a1 1 0 001 1h1a1 1 0 001-1v-6M13 13v6a1 1 0 001 1h1a1 1 0 001-1v-6"></path>
+                  </svg>
+                </div>
+                <h3 class="text-lg font-medium text-gray-900 mb-2">장바구니가 비어있습니다</h3>
+                <p class="text-gray-600">원하는 상품을 담아보세요!</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <footer class="bg-white shadow-sm sticky top-0 z-40">
+      <div class="max-w-md mx-auto py-8 text-center text-gray-500">
+        <p>© 2025 항해플러스 프론트엔드 쇼핑몰</p>
+      </div>
+    </footer>
+  </div>
+</div>
+</body>
+
+</html>

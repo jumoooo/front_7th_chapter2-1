@@ -1,5 +1,7 @@
 import { http, HttpResponse } from "msw";
-import items from "../items.json";
+import items from "./items.json";
+
+const delay = async () => await new Promise((resolve) => setTimeout(resolve, 200));
 
 // 카테고리 추출 함수
 function getUniqueCategories() {
@@ -8,15 +10,9 @@ function getUniqueCategories() {
   items.forEach((item) => {
     const cat1 = item.category1;
     const cat2 = item.category2;
-    const cat3 = item.category3;
-    const cat4 = item.category4;
 
     if (!categories[cat1]) categories[cat1] = {};
     if (cat2 && !categories[cat1][cat2]) categories[cat1][cat2] = {};
-    if (cat3 && !categories[cat1][cat2][cat3])
-      categories[cat1][cat2][cat3] = {};
-    if (cat4 && !categories[cat1][cat2][cat3][cat4])
-      categories[cat1][cat2][cat3][cat4] = true;
   });
 
   return categories;
@@ -30,9 +26,7 @@ function filterProducts(products, query) {
   if (query.search) {
     const searchTerm = query.search.toLowerCase();
     filtered = filtered.filter(
-      (item) =>
-        item.title.toLowerCase().includes(searchTerm) ||
-        item.brand.toLowerCase().includes(searchTerm),
+      (item) => item.title.toLowerCase().includes(searchTerm) || item.brand.toLowerCase().includes(searchTerm),
     );
   }
 
@@ -42,12 +36,6 @@ function filterProducts(products, query) {
   }
   if (query.category2) {
     filtered = filtered.filter((item) => item.category2 === query.category2);
-  }
-  if (query.category3) {
-    filtered = filtered.filter((item) => item.category3 === query.category3);
-  }
-  if (query.category4) {
-    filtered = filtered.filter((item) => item.category4 === query.category4);
   }
 
   // 정렬
@@ -60,10 +48,10 @@ function filterProducts(products, query) {
         filtered.sort((a, b) => parseInt(b.lprice) - parseInt(a.lprice));
         break;
       case "name_asc":
-        filtered.sort((a, b) => a.title.localeCompare(b.title));
+        filtered.sort((a, b) => a.title.localeCompare(b.title, "ko"));
         break;
       case "name_desc":
-        filtered.sort((a, b) => b.title.localeCompare(a.title));
+        filtered.sort((a, b) => b.title.localeCompare(a.title, "ko"));
         break;
       default:
         // 기본은 가격 낮은 순
@@ -76,15 +64,13 @@ function filterProducts(products, query) {
 
 export const handlers = [
   // 상품 목록 API
-  http.get("/api/products", ({ request }) => {
+  http.get("/api/products", async ({ request }) => {
     const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get("page")) || 1;
+    const page = parseInt(url.searchParams.get("page") ?? url.searchParams.get("current")) || 1;
     const limit = parseInt(url.searchParams.get("limit")) || 20;
     const search = url.searchParams.get("search") || "";
     const category1 = url.searchParams.get("category1") || "";
     const category2 = url.searchParams.get("category2") || "";
-    const category3 = url.searchParams.get("category3") || "";
-    const category4 = url.searchParams.get("category4") || "";
     const sort = url.searchParams.get("sort") || "price_asc";
 
     // 필터링된 상품들
@@ -92,8 +78,6 @@ export const handlers = [
       search,
       category1,
       category2,
-      category3,
-      category4,
       sort,
     });
 
@@ -117,17 +101,17 @@ export const handlers = [
         search,
         category1,
         category2,
-        category3,
-        category4,
         sort,
       },
     };
+
+    await delay();
 
     return HttpResponse.json(response);
   }),
 
   // 상품 상세 API
-  http.get("/api/products/:id", ({ params }) => {
+  http.get("/api/products/:id", async ({ params }) => {
     const { id } = params;
     const product = items.find((item) => item.productId === id);
 
@@ -142,19 +126,17 @@ export const handlers = [
       rating: Math.floor(Math.random() * 2) + 4, // 4~5점 랜덤
       reviewCount: Math.floor(Math.random() * 1000) + 50, // 50~1050개 랜덤
       stock: Math.floor(Math.random() * 100) + 10, // 10~110개 랜덤
-      images: [
-        product.image,
-        product.image.replace(".jpg", "_2.jpg"),
-        product.image.replace(".jpg", "_3.jpg"),
-      ],
+      images: [product.image, product.image.replace(".jpg", "_2.jpg"), product.image.replace(".jpg", "_3.jpg")],
     };
 
+    await delay();
     return HttpResponse.json(detailProduct);
   }),
 
   // 카테고리 목록 API
-  http.get("/api/categories", () => {
+  http.get("/api/categories", async () => {
     const categories = getUniqueCategories();
+    await delay();
     return HttpResponse.json(categories);
   }),
 ];
