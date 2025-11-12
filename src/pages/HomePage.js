@@ -1,10 +1,11 @@
 import { PageLayout } from "./PageLayout";
 import { SearchForm, ProductList } from "../components";
 import { getCategories, getProducts } from "../api/productApi.js";
-import ErrorPage from "./ErrorPage.js";
+import { parseHomeQuery } from "../utils/urlUtils.js";
 
 const DEFAULT_LIMIT = 20;
 let cachedCategories = null;
+
 const homeState = {
   filters: {},
   pagination: {
@@ -28,25 +29,8 @@ const ensureCategories = async () => {
   }
 };
 
-// 주소에서 파라미터 가저오기
-const parseHomeQuery = () => {
-  const searchParams = new URLSearchParams(window.location.search);
-  const limitParam = Number(searchParams.get("limit"));
-  const limit = Number.isNaN(limitParam) || limitParam <= 0 ? DEFAULT_LIMIT : limitParam;
-  const currentParam = Number.parseInt(searchParams.get("current") ?? searchParams.get("page") ?? "1", 10);
-
-  return {
-    limit,
-    current: Number.isNaN(currentParam) || currentParam <= 0 ? 1 : currentParam,
-    search: searchParams.get("search") ?? "",
-    category1: searchParams.get("category1") ?? "",
-    category2: searchParams.get("category2") ?? "",
-    sort: searchParams.get("sort") ?? undefined,
-  };
-};
-
 export const renderHomePage = async () => {
-  const homeQuery = parseHomeQuery();
+  const homeQuery = parseHomeQuery(DEFAULT_LIMIT);
 
   try {
     const [productData, categories] = await Promise.all([getProducts(homeQuery), ensureCategories()]);
@@ -82,7 +66,7 @@ export const renderHomePage = async () => {
     };
   } catch (error) {
     console.error("홈 페이지 로딩 실패", error);
-    return ErrorPage();
+    throw new Error("홈 페이지 로딩 실패");
   }
 };
 
@@ -121,7 +105,7 @@ const bindEvents = () => {
 
     try {
       const nextPage = currentPage + 1;
-      const query = { ...parseHomeQuery(), current: nextPage };
+      const query = { ...parseHomeQuery(DEFAULT_LIMIT), current: nextPage };
       const data = await getProducts(query);
       const nextProducts = data.products ?? [];
 

@@ -61,13 +61,17 @@ const CategoryFillter = (categories, filters, loading = false) => {
                 )
                 .join("")
             : Object.keys(categories[selectedCategory1] ?? {})
-                .map(
-                  (
-                    category2,
-                  ) => `<button type="button" data-category1="${selectedCategory1}" data-category2="${category2}" class="category2-filter-btn text-left px-3 py-2 text-sm rounded-md border transition-colors bg-white border-gray-300 text-gray-700 hover:bg-gray-50">
+                .map((category2) => {
+                  const baseClasses =
+                    "category2-filter-btn text-left px-3 py-2 text-sm rounded-md border transition-colors";
+                  const inactiveClasses = "bg-white border-gray-300 text-gray-700 hover:bg-gray-50";
+                  const activeClasses = "bg-blue-100 border-blue-300 text-blue-800 hover:bg-blue-200";
+                  return `<button type="button" data-category1="${selectedCategory1}" data-category2="${category2}" class="${baseClasses} ${
+                    filters?.category2 === category2 ? activeClasses : inactiveClasses
+                  }">
               ${category2}
-            </button>`,
-                )
+            </button>`;
+                })
                 .join("") || `<div class="text-sm text-gray-500 italic">하위 카테고리가 없습니다.</div>`
       }
       </div>
