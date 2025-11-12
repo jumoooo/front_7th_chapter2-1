@@ -9,28 +9,6 @@ const enableMocking = () =>
     }),
   );
 
-// 이벤트 리스너 바인딩 여부
-// let isListenerBound = false;
-
-// const addEvent = (selector, eventName, callback) => {
-//   document.body.addEventListener(eventName, (event) => {
-//     let element = null;
-
-//     if (selector.startsWith("#")) {
-//       // ID 선택자
-//       const idElement = document.getElementById(selector.slice(1));
-//       if (!idElement || !idElement.contains(event.target)) return;
-//       element = idElement;
-//     } else {
-//       // 클래스, 태그 등 다른 선택자
-//       element = event.target.closest(selector);
-//       if (!element) return;
-//     }
-
-//     callback(element, event);
-//   });
-// };
-
 // const bindGlobalEvents = () => {
 //   if (isListenerBound) return;
 
@@ -74,12 +52,7 @@ const enableMocking = () =>
 //   isListenerBound = true;
 // };
 
-window.addEventListener("popstate", () => {
-  renderRoute();
-});
-
 const main = () => {
-  // bindGlobalEvents();
   renderRoute();
 };
 
