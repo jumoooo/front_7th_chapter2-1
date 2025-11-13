@@ -222,6 +222,52 @@ const mountHomePage = () => {
     }
   };
 
+  // ✅ 장바구니 체크박스 상태를 반영한다
+  const handleCartModalCheckboxChange = (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (!target.closest(".cart-modal")) return;
+    if (!target.matches("input[type='checkbox']")) return;
+
+    if (target.id === "cart-modal-select-all-checkbox") {
+      const shouldChecked = Boolean(target.checked);
+      runtime.setSelectProductList?.((prev) => {
+        const baseList = Array.isArray(prev) ? prev : [];
+        let hasChanged = false;
+        const updatedList = baseList.map((item) => {
+          if (Boolean(item.checked) === shouldChecked) return item;
+          hasChanged = true;
+          return { ...item, checked: shouldChecked };
+        });
+        return hasChanged ? updatedList : baseList;
+      });
+      cartStore.setAllChecked(shouldChecked);
+      return;
+    }
+
+    const checkbox = target.closest(".cart-item-checkbox");
+    if (!checkbox) return;
+    const { productId } = checkbox.dataset ?? {};
+    if (!productId) return;
+    const shouldChecked = Boolean(target.checked);
+
+    let hasChanged = false;
+    runtime.setSelectProductList?.((prev) => {
+      const baseList = Array.isArray(prev) ? prev : [];
+      const updatedList = baseList.map((item) => {
+        if (item.productId !== productId) return item;
+        if (Boolean(item.checked) === shouldChecked) return item;
+        hasChanged = true;
+        return { ...item, checked: shouldChecked };
+      });
+      return hasChanged ? updatedList : baseList;
+    });
+
+    if (hasChanged) {
+      cartStore.updateItemChecked(productId, shouldChecked);
+    }
+  };
+
   // ✅ 장바구니 상품에서 삭제 버튼을 클릭하면 장바구니에서 제거한다
   const handleRemoveCartItem = (event) => {
     const removeButton = event.target.closest(".cart-item-remove-btn");
@@ -239,6 +285,71 @@ const mountHomePage = () => {
     });
 
     cartStore.removeItem(productId);
+  };
+
+  // ✅ 장바구니 수량 조절 버튼을 처리한다
+  const handleCartItemQuantityClick = (event) => {
+    const increaseButton = event.target.closest(".quantity-increase-btn");
+    const decreaseButton = event.target.closest(".quantity-decrease-btn");
+    const targetButton = increaseButton ?? decreaseButton;
+    if (!targetButton) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const { productId } = targetButton.dataset ?? {};
+    if (!productId) return;
+    const delta = increaseButton ? 1 : -1;
+
+    let nextQuantity = null;
+    let hasChanged = false;
+    runtime.setSelectProductList?.((prev) => {
+      const baseList = Array.isArray(prev) ? prev : [];
+      const updatedList = baseList.map((item) => {
+        if (item.productId !== productId) return item;
+        const currentQuantity = Number(item.quantity ?? 1);
+        const computedQuantity = Math.max(1, currentQuantity + delta);
+        nextQuantity = computedQuantity;
+        if (computedQuantity === currentQuantity) return item;
+        hasChanged = true;
+        return { ...item, quantity: computedQuantity };
+      });
+      return hasChanged ? updatedList : baseList;
+    });
+
+    if (hasChanged && nextQuantity !== null) {
+      cartStore.updateItemQuantity(productId, nextQuantity);
+    }
+  };
+
+  // ✅ 장바구니 전체 비우기 버튼을 처리한다
+  const handleClearCart = (event) => {
+    const clearButton = event.target.closest("#cart-modal-clear-cart-btn");
+    if (!clearButton) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    runtime.setSelectProductList?.([]);
+    cartStore.clear();
+  };
+
+  // ✅ 선택된 장바구니 항목만 제거한다
+  const handleRemoveSelectedCartItems = (event) => {
+    const removeSelectedButton = event.target.closest("#cart-modal-remove-selected-btn");
+    if (!removeSelectedButton) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    runtime.setSelectProductList?.((prev) => {
+      if (!Array.isArray(prev)) return [];
+      const nextList = prev.filter((item) => !item.checked);
+      return nextList;
+    });
+    cartStore.setAllChecked(false);
+    const currentCartItems = runtime.selectProductList ?? [];
+    currentCartItems.filter((item) => item.checked).forEach((item) => cartStore.removeItem(item.productId));
   };
 
   // ✅ 상품 카드에서 장바구니 버튼을 클릭하면 장바구니에 추가한다
@@ -266,14 +377,14 @@ const mountHomePage = () => {
       const baseList = Array.isArray(prev) ? prev : [];
       const targetIndex = baseList.findIndex((item) => item.productId === productId);
       if (targetIndex >= 0) {
-        return baseList.map((item, index) =>
-          index === targetIndex
-            ? {
-                ...item,
-                quantity: (item.quantity ?? 0) + 1,
-              }
-            : item,
-        );
+        return baseList.map((item, index) => {
+          if (index !== targetIndex) return item;
+          const currentQuantity = Number(item.quantity ?? 0);
+          return {
+            ...item,
+            quantity: currentQuantity + 1,
+          };
+        });
       }
       return [
         ...baseList,
@@ -283,6 +394,7 @@ const mountHomePage = () => {
           image,
           price,
           quantity: 1,
+          checked: false,
         },
       ];
     });
@@ -303,9 +415,13 @@ const mountHomePage = () => {
   root.addEventListener("click", handleAddToCartFromList);
   root.addEventListener("change", handleLimitChange);
   root.addEventListener("change", handleSortChange);
+  root.addEventListener("change", handleCartModalCheckboxChange);
   root.addEventListener("submit", handleSearchSubmit);
   root.addEventListener("click", handleCartModal);
   root.addEventListener("click", handleRemoveCartItem);
+  root.addEventListener("click", handleCartItemQuantityClick);
+  root.addEventListener("click", handleClearCart);
+  root.addEventListener("click", handleRemoveSelectedCartItems);
 
   runtime.reobserveSentinel = () => {
     window.requestAnimationFrame(() => observeSentinel());
@@ -323,9 +439,13 @@ const mountHomePage = () => {
     root.removeEventListener("click", handleAddToCartFromList);
     root.removeEventListener("change", handleLimitChange);
     root.removeEventListener("change", handleSortChange);
+    root.removeEventListener("change", handleCartModalCheckboxChange);
     root.removeEventListener("submit", handleSearchSubmit);
     root.removeEventListener("click", handleCartModal);
     root.removeEventListener("click", handleRemoveCartItem);
+    root.removeEventListener("click", handleCartItemQuantityClick);
+    root.removeEventListener("click", handleClearCart);
+    root.removeEventListener("click", handleRemoveSelectedCartItems);
     observer.disconnect();
     runtime.reobserveSentinel = null;
     if (runtime.unMount === unMount) runtime.unMount = null;
@@ -396,7 +516,12 @@ export const HomePageComponent = () => {
         for (let index = 0; index < nextCartItems.length; index += 1) {
           const currentItem = nextCartItems[index];
           const prevItem = prevItems[index];
-          if (!prevItem || prevItem.productId !== currentItem.productId || prevItem.quantity !== currentItem.quantity) {
+          if (
+            !prevItem ||
+            prevItem.productId !== currentItem.productId ||
+            prevItem.quantity !== currentItem.quantity ||
+            Boolean(prevItem.checked) !== Boolean(currentItem.checked)
+          ) {
             isShallowEqual = false;
             break;
           }
@@ -405,7 +530,10 @@ export const HomePageComponent = () => {
 
       if (isShallowEqual) return;
 
-      const snapshot = nextCartItems.map((item) => ({ ...item }));
+      const snapshot = nextCartItems.map((item) => ({
+        ...item,
+        checked: Boolean(item.checked),
+      }));
       runtime.setSelectProductList?.(snapshot);
     };
     runtime.cartUnsubscribe = cartStore.subscribe(runtime.cartSyncHandler);

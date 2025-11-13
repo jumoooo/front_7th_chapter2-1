@@ -8,7 +8,8 @@ const loadInitialState = () => {
     const storedValue = window.localStorage.getItem(STORAGE_KEY);
     if (!storedValue) return [];
     const parsed = JSON.parse(storedValue);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item) => normalizeCartItem(item)).filter((item) => item !== null);
   } catch (error) {
     console.warn("장바구니 상태 복원 실패", error);
     return [];
@@ -43,18 +44,31 @@ const sanitizeQuantity = (quantity) => {
   return Math.floor(normalized);
 };
 
+const normalizeCartItem = (item) => {
+  if (!item || typeof item !== "object" || !item.productId) return null;
+  return {
+    productId: item.productId,
+    title: item.title ?? "",
+    image: item.image ?? "",
+    price: Number(item.price ?? item.lprice) || 0,
+    quantity: sanitizeQuantity(item.quantity ?? 1),
+    checked: typeof item.checked === "boolean" ? item.checked : true,
+  };
+};
 const mapProductToCartItem = (product, quantity) => ({
   productId: product.productId,
   title: product.title,
   image: product.image,
   price: Number(product.lprice) || 0,
   quantity: sanitizeQuantity(quantity),
-  checked: false,
+  checked: typeof product.checked === "boolean" ? product.checked : false,
 });
 
 const setState = (updater) => {
-  const nextState = typeof updater === "function" ? updater([...cartState]) : updater;
-  cartState = Array.isArray(nextState) ? nextState : [];
+  const rawNextState = typeof updater === "function" ? updater([...cartState]) : updater;
+  cartState = Array.isArray(rawNextState)
+    ? rawNextState.map((item) => normalizeCartItem(item)).filter((item) => item !== null)
+    : [];
   persistState();
   notifySubscribers();
 };
@@ -81,7 +95,6 @@ export const cartStore = {
       const targetIndex = nextState.findIndex((item) => item.productId === product.productId);
       if (targetIndex >= 0) {
         const existingItem = nextState[targetIndex];
-        console.log(existingItem);
         nextState[targetIndex] = {
           ...existingItem,
           quantity: sanitizeQuantity(existingItem.quantity + normalizedQuantity),
@@ -96,9 +109,44 @@ export const cartStore = {
   updateItemQuantity(productId, quantity) {
     if (!productId) return;
     const normalizedQuantity = sanitizeQuantity(quantity);
-    setState((prevState) =>
-      prevState.map((item) => (item.productId === productId ? { ...item, quantity: normalizedQuantity } : item)),
-    );
+    setState((prevState) => {
+      let hasMutated = false;
+      const nextState = prevState.map((item) => {
+        if (item.productId !== productId) return item;
+        if (item.quantity === normalizedQuantity) return item;
+        hasMutated = true;
+        return { ...item, quantity: normalizedQuantity };
+      });
+      return hasMutated ? nextState : prevState;
+    });
+  },
+
+  updateItemChecked(productId, checked) {
+    if (!productId) return;
+    const normalizedChecked = Boolean(checked);
+    setState((prevState) => {
+      let hasMutated = false;
+      const nextState = prevState.map((item) => {
+        if (item.productId !== productId) return item;
+        if (Boolean(item.checked) === normalizedChecked) return item;
+        hasMutated = true;
+        return { ...item, checked: normalizedChecked };
+      });
+      return hasMutated ? nextState : prevState;
+    });
+  },
+
+  setAllChecked(checked) {
+    const normalizedChecked = Boolean(checked);
+    setState((prevState) => {
+      let hasMutated = false;
+      const nextState = prevState.map((item) => {
+        if (Boolean(item.checked) === normalizedChecked) return item;
+        hasMutated = true;
+        return { ...item, checked: normalizedChecked };
+      });
+      return hasMutated ? nextState : prevState;
+    });
   },
 
   removeItem(productId) {
