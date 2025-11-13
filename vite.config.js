@@ -12,4 +12,8 @@ export default defineConfig({
       },
     },
   },
+
+  build: {
+    outDir: "dist", // vite 기본 값이 `dist` 이므로 생략 가능
+  },
 });

@@ -3,7 +3,6 @@ import { Skeleton } from "./product/Skeleton.js";
 import { Loading } from "./product/Loading.js";
 
 export const ProductList = ({ products, pagination, loading }) => {
-  console.log("products.length : ", products.length);
   return /*html*/ `
     <!-- 상품 목록 -->
     <div class="mb-6">

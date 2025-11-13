@@ -2,23 +2,33 @@ import { PageLayout } from "./PageLayout";
 import { SearchForm, ProductList } from "../components";
 import { getCategories, getProducts } from "../api/productApi.js";
 import { parseHomeQuery } from "../utils/urlUtils.js";
+import { useState } from "../lib/hook.js";
 
 const DEFAULT_LIMIT = 20;
 let cachedCategories = null;
 
-const homeState = {
-  filters: {},
-  pagination: {
-    page: 1,
-    limit: DEFAULT_LIMIT,
-    total: 0,
-    hasNext: false,
-  },
-  products: [],
-  categories: {},
+// ✅ 런타임 공유 객체: 훅에서 접근할 setter/상태와 플래그를 모아둔다
+const runtime = {
+  setFilters: null,
+  setPagination: null,
+  setProducts: null,
+  setCategories: null,
+  setIsLoading: null,
+  setError: null,
+  filters: null,
+  pagination: null,
+  products: null,
+  categories: null,
+  isLoading: false,
+  error: null,
+  isInitializing: false,
+  isLoadingMore: false,
+  lastKnownSearch: "",
+  reobserveSentinel: null,
 };
 
 const ensureCategories = async () => {
+  // ✅ 카테고리 데이터를 한 번만 요청하고 결과를 캐시한다
   if (cachedCategories) return cachedCategories;
   try {
     cachedCategories = await getCategories();
@@ -29,137 +39,157 @@ const ensureCategories = async () => {
   }
 };
 
-export const renderHomePage = async () => {
-  const homeQuery = parseHomeQuery(DEFAULT_LIMIT);
+const normalizeFilters = (query, productFilters) => {
+  // ✅ URL 쿼리와 서버 응답을 병합해 일관된 필터 상태를 만든다
+  return {
+    search: query.search ?? productFilters?.search ?? "",
+    category1: query.category1 ?? productFilters?.category1 ?? "",
+    category2: query.category2 ?? productFilters?.category2 ?? "",
+    sort: query.sort ?? productFilters?.sort ?? "",
+  };
+};
+
+const normalizePagination = (query, productPagination) => {
+  // ✅ URL 정보와 API 응답을 기준으로 페이지 정보를 통일한다
+  const fallbackPage = query.current ?? 1;
+  const fallbackLimit = query.limit ?? DEFAULT_LIMIT;
+  return {
+    page: productPagination?.page ?? productPagination?.current ?? fallbackPage,
+    limit: productPagination?.limit ?? fallbackLimit,
+    total: productPagination?.total ?? 0,
+    hasNext: Boolean(productPagination?.hasNext ?? false),
+  };
+};
+
+const buildProductQuery = (filters, paginationOverride) => {
+  // ✅ 현재 상태를 기반으로 product API 요청 파라미터를 구성한다
+  const pagination = paginationOverride ?? runtime.pagination ?? {};
+  const query = {
+    limit: pagination.limit ?? DEFAULT_LIMIT,
+    current: pagination.page ?? 1,
+  };
+
+  if (filters?.search) query.search = filters.search;
+  if (filters?.category1) query.category1 = filters.category1;
+  if (filters?.category2) query.category2 = filters.category2;
+  if (filters?.sort) query.sort = filters.sort;
+
+  return query;
+};
+
+const updateCurrentPageInUrl = (page) => {
+  // ✅ 무한 스크롤 등으로 페이지가 바뀌면 URL도 함께 갱신한다
+  const url = new URL(window.location.href);
+  url.searchParams.set("current", String(page));
+  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  runtime.lastKnownSearch = window.location.search;
+};
+
+const loadInitialData = async (query) => {
+  // ✅ 초기 렌더 또는 URL 변경 시 데이터를 다시 불러온다
+  if (runtime.isInitializing) return;
+  runtime.isInitializing = true;
+  runtime.setIsLoading?.(true);
+  runtime.setError?.(null);
 
   try {
-    const [productData, categories] = await Promise.all([getProducts(homeQuery), ensureCategories()]);
-    const normalizedFilters = {
-      search: homeQuery.search,
-      category1: homeQuery.category1,
-      category2: homeQuery.category2,
-      sort: homeQuery.sort ?? productData.filters?.sort ?? undefined,
-    };
+    const [productData, categories] = await Promise.all([getProducts(query), ensureCategories()]);
+    const normalizedFilters = normalizeFilters(query, productData?.filters);
+    const normalizedPagination = normalizePagination(query, productData?.pagination);
+    const currentPage = normalizedPagination.page ?? 1;
+    const currentProducts = productData?.products ?? [];
 
-    const normalizedPagination = {
-      ...productData.pagination,
-      page: productData.pagination?.page ?? productData.pagination?.current ?? 1,
-    };
+    let aggregatedProducts = currentProducts;
 
-    homeState.products = productData.products ?? [];
-    homeState.pagination = {
-      ...homeState.pagination,
-      ...normalizedPagination,
-    };
-    homeState.filters = { ...productData.filters, ...normalizedFilters };
-    homeState.categories = categories ?? {};
+    if (currentPage > 1) {
+      aggregatedProducts = [];
+      for (let pageNumber = 1; pageNumber <= currentPage; pageNumber += 1) {
+        if (pageNumber === currentPage) {
+          aggregatedProducts.push(...currentProducts);
+          continue;
+        }
 
-    return {
-      html: buildPageView({
-        filters: homeState.filters,
-        pagination: homeState.pagination,
-        categories: homeState.categories,
-        products: homeState.products,
-        loading: false,
-      }),
-      init: bindEvents,
-    };
+        try {
+          const pageQuery = buildProductQuery(normalizedFilters, {
+            ...normalizedPagination,
+            page: pageNumber,
+          });
+          const pageData = await getProducts(pageQuery);
+          aggregatedProducts.push(...(pageData?.products ?? []));
+        } catch (error) {
+          console.error(`페이지 ${pageNumber} 데이터 로딩 실패`, error);
+        }
+      }
+    }
+
+    runtime.setFilters?.(normalizedFilters);
+    runtime.setPagination?.(normalizedPagination);
+    runtime.setProducts?.(aggregatedProducts);
+    runtime.setCategories?.(categories ?? {});
   } catch (error) {
     console.error("홈 페이지 로딩 실패", error);
-    throw new Error("홈 페이지 로딩 실패");
+    runtime.setError?.("상품을 불러오지 못했습니다.");
+  } finally {
+    runtime.setIsLoading?.(false);
+    runtime.isInitializing = false;
   }
 };
 
-const bindEvents = () => {
-  const root = document.getElementById("root");
-  if (!root) return;
+const requestLoadMore = () => {
+  // ✅ sentinel이 감지되면 다음 페이지 데이터를 요청한다
+  if (runtime.isLoadingMore || runtime.isInitializing) return;
 
-  const pageContainer = root.querySelector("#home-page");
-  if (!pageContainer) return;
+  const filters = runtime.filters ?? {};
+  const pagination = runtime.pagination ?? { page: 1, limit: DEFAULT_LIMIT, hasNext: false };
+  if (!pagination.hasNext) return;
 
-  let sentinel = pageContainer.querySelector("[data-observer-target]");
-  if (!sentinel) return;
+  const nextPage = (pagination.page ?? 1) + 1;
+  const nextQuery = buildProductQuery(filters, { ...pagination, page: nextPage });
 
-  const productListContainer = pageContainer.querySelector("[data-product-list]");
-  if (!productListContainer) return;
+  runtime.isLoadingMore = true;
 
-  let isLoading = false;
-  let currentPage = Number.parseInt(pageContainer?.dataset.currentPage ?? "1", 10);
-  let hasNextPage = pageContainer?.dataset.hasNext === "true";
+  getProducts(nextQuery)
+    .then((data) => {
+      const nextProducts = data?.products ?? [];
+      const incomingPagination = normalizePagination(nextQuery, data?.pagination);
 
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        // 옵저버 언제 작동 되냐
-        if (!entry.isIntersecting || isLoading || !hasNextPage) return;
-        loadMore();
-      });
-    },
-    { rootMargin: "200px" },
-  );
-
-  observer.observe(sentinel);
-
-  const loadMore = async () => {
-    isLoading = true;
-
-    try {
-      const nextPage = currentPage + 1;
-      const query = { ...parseHomeQuery(DEFAULT_LIMIT), current: nextPage };
-      const data = await getProducts(query);
-      const nextProducts = data.products ?? [];
-
-      if (nextProducts.length === 0) {
-        hasNextPage = false;
-        pageContainer.dataset.hasNext = "false";
-        observer.disconnect();
-        return;
+      if (nextProducts.length > 0) {
+        runtime.setProducts?.((prev) => [...prev, ...nextProducts]);
       }
 
-      homeState.products = [...homeState.products, ...nextProducts];
-      homeState.pagination = {
-        ...homeState.pagination,
-        ...data.pagination,
-        page: data.pagination?.page ?? nextPage,
-      };
-      currentPage = homeState.pagination.page ?? nextPage;
-      hasNextPage = data.pagination?.hasNext ?? false;
+      runtime.setPagination?.((prev) => ({
+        ...prev,
+        page: incomingPagination.page,
+        limit: incomingPagination.limit,
+        total: incomingPagination.total ?? prev.total ?? 0,
+        hasNext: nextProducts.length > 0 ? incomingPagination.hasNext : false,
+      }));
 
-      const url = new URL(window.location.href);
-      url.searchParams.set("current", String(currentPage));
-      window.history.replaceState({}, "", `${url.pathname}${url.search}`);
-
-      productListContainer.innerHTML = ProductList({
-        products: homeState.products,
-        pagination: homeState.pagination,
-        loading: false,
-      });
-
-      pageContainer.dataset.currentPage = String(currentPage);
-      pageContainer.dataset.hasNext = hasNextPage ? "true" : "false";
-
-      observer.disconnect();
-      if (hasNextPage) {
-        sentinel = pageContainer.querySelector("[data-observer-target]");
-        if (sentinel) {
-          observer.observe(sentinel);
-        }
-      }
-    } catch (error) {
+      updateCurrentPageInUrl(incomingPagination.page);
+    })
+    .catch((error) => {
       console.error("추가 상품 로딩 실패", error);
-      observer.disconnect();
-    } finally {
-      isLoading = false;
-    }
-  };
+      runtime.setError?.("추가 상품을 불러오지 못했습니다.");
+    })
+    .finally(() => {
+      runtime.isLoadingMore = false;
+    });
+};
+
+const mountHomePage = () => {
+  // ✅ HomePage가 실제 DOM에 마운트될 때 단 한 번 실행되는 로직
+  const root = document.getElementById("root");
+  if (!root) return () => {};
 
   const handleProductCardClick = (event) => {
+    // ✅ 상품 카드를 클릭하면 상세 페이지로 이동한다
     const card = event.target.closest(".product-card");
     if (!card) return;
     window.navigate(`/products/${card.dataset.productId}`);
   };
 
   const handleCategoryClick = (event) => {
+    // ✅ 카테고리 관련 버튼이 클릭됐는지 검사하고 URL을 갱신한다
     const resetButton = event.target.closest("[data-breadcrumb='reset']");
     if (resetButton) {
       const resetUrl = new URL(window.location.href);
@@ -208,6 +238,7 @@ const bindEvents = () => {
     }
 
     const button = event.target.closest(".category2-filter-btn");
+    // ✅ 2차 카테고리 버튼을 선택하면 검색어를 초기화하고 URL을 변경한다
     if (!button) return;
     const currentUrl = new URL(window.location.href);
     const category1 = button.dataset.category1 ?? "";
@@ -224,6 +255,7 @@ const bindEvents = () => {
   };
 
   const handleLimitChange = (event) => {
+    // ✅ 페이지당 노출 개수 변경 시 첫 페이지로 이동한다
     if (event.target.id !== "limit-select") return;
     const currentUrl = new URL(window.location.href);
     currentUrl.searchParams.set("limit", event.target.value);
@@ -232,6 +264,7 @@ const bindEvents = () => {
   };
 
   const handleSortChange = (event) => {
+    // ✅ 정렬 옵션을 변경하면 첫 페이지부터 다시 조회한다
     if (event.target.id !== "sort-select") return;
     const currentUrl = new URL(window.location.href);
     currentUrl.searchParams.set("sort", event.target.value);
@@ -240,6 +273,7 @@ const bindEvents = () => {
   };
 
   const handleSearchSubmit = (event) => {
+    // ✅ 검색어 입력 후 제출하면 쿼리를 치환한다
     const searchForm = event.target.closest("form[data-search-form]");
     if (!searchForm) return;
     event.preventDefault();
@@ -258,11 +292,34 @@ const bindEvents = () => {
     window.navigate(`${currentUrl.pathname}${currentUrl.search}`);
   };
 
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        // ✅ sentinel이 화면 근처로 오면 다음 페이지를 요청한다
+        if (!entry.isIntersecting) return;
+        if (!runtime.pagination?.hasNext) return;
+        requestLoadMore();
+      });
+    },
+    { rootMargin: "200px" },
+  );
+
+  const observeSentinel = () => {
+    observer.disconnect();
+    const sentinel = root.querySelector("[data-observer-target]");
+    if (sentinel) observer.observe(sentinel);
+  };
+
   root.addEventListener("click", handleProductCardClick);
   root.addEventListener("click", handleCategoryClick);
   root.addEventListener("change", handleLimitChange);
   root.addEventListener("change", handleSortChange);
   root.addEventListener("submit", handleSearchSubmit);
+
+  runtime.reobserveSentinel = () => {
+    window.requestAnimationFrame(() => observeSentinel());
+  };
+  runtime.reobserveSentinel();
 
   return () => {
     root.removeEventListener("click", handleProductCardClick);
@@ -271,16 +328,23 @@ const bindEvents = () => {
     root.removeEventListener("change", handleSortChange);
     root.removeEventListener("submit", handleSearchSubmit);
     observer.disconnect();
+    runtime.reobserveSentinel = null;
   };
 };
 
 const buildPageView = (state) => {
-  const { filters, pagination, products, categories, loading } = state;
+  // ✅ 상태를 기반으로 화면 전체 HTML을 구성한다
+  const { filters, pagination, products, categories, loading, error } = state;
   return /*html*/ `
-  <div id="home-page" data-current-page="${pagination.page}" data-has-next="${pagination.hasNext}">
+  <div
+    id="home-page"
+    data-current-page="${pagination.page}"
+    data-has-next="${pagination.hasNext ? "true" : "false"}"
+  >
     ${PageLayout({
       children: `
         ${SearchForm({ filters, pagination, categories, loading })}
+        ${error ? `<div class="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">${error}</div>` : ""}
         <div data-product-list>
           ${ProductList({ products, pagination, loading })}
         </div>
@@ -289,3 +353,73 @@ const buildPageView = (state) => {
   </div>
   `;
 };
+
+export const HomePageComponent = () => {
+  // ✅ URL 쿼리를 참고해 훅 초기값을 준비한다
+  const homeQuery = parseHomeQuery(DEFAULT_LIMIT);
+  const initialFilters = {
+    search: homeQuery.search ?? "",
+    category1: homeQuery.category1 ?? "",
+    category2: homeQuery.category2 ?? "",
+    sort: homeQuery.sort ?? "",
+  };
+  const initialPagination = {
+    page: homeQuery.current ?? 1,
+    limit: homeQuery.limit ?? DEFAULT_LIMIT,
+    total: 0,
+    hasNext: false,
+  };
+
+  const [filters, setFilters] = useState(initialFilters);
+  const [pagination, setPagination] = useState(initialPagination);
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
+
+  runtime.setFilters = setFilters;
+  runtime.setPagination = setPagination;
+  runtime.setProducts = setProducts;
+  runtime.setCategories = setCategories;
+  runtime.setIsLoading = setIsLoading;
+  runtime.setError = setError;
+
+  runtime.filters = filters;
+  runtime.pagination = pagination;
+  runtime.products = products;
+  runtime.categories = categories;
+  runtime.isLoading = isLoading;
+  runtime.error = error;
+
+  const currentSearch = window.location.search;
+  // ✅ 뒤로가기 등으로 URL이 바뀌면 다시 초기화하도록 플래그를 조정
+  if (runtime.lastKnownSearch !== currentSearch && hasInitialized) {
+    setHasInitialized(false);
+  }
+
+  if (!hasInitialized) {
+    // ✅ 처음 렌더되거나 URL이 변경된 직후 데이터를 재요청한다
+    runtime.lastKnownSearch = currentSearch;
+    setHasInitialized(true);
+    setFilters(initialFilters);
+    setPagination(initialPagination);
+    setProducts([]);
+    setCategories({});
+    setError(null);
+    loadInitialData(buildProductQuery(initialFilters, initialPagination));
+  }
+
+  runtime.reobserveSentinel?.();
+
+  return buildPageView({
+    filters,
+    pagination,
+    categories,
+    products,
+    loading: isLoading,
+    error,
+  });
+};
+
+HomePageComponent.mount = mountHomePage;
