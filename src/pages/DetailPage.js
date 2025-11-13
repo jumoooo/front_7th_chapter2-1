@@ -2,6 +2,7 @@ import { DetailLayout } from "./DetailLayout";
 import { getProduct, getProducts } from "../api/productApi.js";
 import { useState } from "../lib/hook.js";
 import { navigate } from "../router/router.js";
+import { cartStore } from "../store/cartStore.js";
 
 import { ProductDetailLoading } from "../components/productDetail/ProductDetailLoading.js";
 import { ProductBreadcrumb } from "../components/productDetail/ProductBreadcrumb.js";
@@ -9,17 +10,17 @@ import { ProductDetailInfo } from "../components/productDetail/ProductDetailInfo
 import { RelatedProductsList } from "../components/productDetail/RelatedProductsList.js";
 
 const runtime = {
-  setMainProductState: null,
-  mainProductState: null,
+  setMainProductState: null, // 상품 상세 상태 설정 핸들러
+  mainProductState: null, // 상품 상세 상태
 
   isFetching: false, // 데이터 로딩 여부
   unMount: null, // 컴포넌트 언마운트 핸들러
-  setProductQty: null,
-  productQty: null,
+  setProductQty: null, // 수량 설정 핸들러
+  productQty: 1, // 수량 상태
 };
 
-const buildPageView = (props) => {
-  const { loading, product, relatedProducts, error, productQty } = props;
+const buildPageView = (state) => {
+  const { loading, product, relatedProducts, error, productQty } = state;
   if (error) throw new Error(error);
   const safeProduct = product ?? {};
 
@@ -83,35 +84,6 @@ const buildPageView = (props) => {
   });
 };
 
-const fetchProduct = async (productId) => {
-  runtime.setMainProductState?.(() => ({
-    loading: true,
-    product: null,
-    relatedProducts: null,
-    error: null,
-  }));
-
-  try {
-    const product = await getProduct(productId);
-    const res_products = await getProducts({ category2: product.category2 });
-    const relatedProducts = res_products.products.filter((item) => item.productId !== product.productId);
-    runtime.setMainProductState?.(() => ({
-      loading: false,
-      product,
-      relatedProducts,
-      error: null,
-    }));
-  } catch (error) {
-    console.error("상품 상세 로딩 실패", error);
-    runtime.setMainProductState?.(() => ({
-      loading: false,
-      product: null,
-      relatedProducts: null,
-      error: "상품을 불러오지 못했습니다.",
-    }));
-  }
-};
-
 const mountDetailPage = () => {
   const $root = document.getElementById("root");
   if (!$root) return () => {};
@@ -162,20 +134,32 @@ const mountDetailPage = () => {
 
     // 어떤 버튼인지에 따라 증감 값 계산
     const quantityDiff = clickedButton.id === "quantity-increase" ? 1 : -1;
-    const currentQty = runtime.productQty;
+    const currentQty = runtime.productQty ?? 1;
     const nextQty = Math.max(1, currentQty + quantityDiff);
+    runtime.productQty = nextQty;
     runtime.setProductQty?.(nextQty);
+  };
+
+  const handleAddToCartClick = (event) => {
+    const button = event.target.closest("#add-to-cart-btn");
+    if (!button) return;
+    const product = runtime.mainProductState?.product;
+    if (!product) return;
+    const quantity = runtime.productQty ?? 1;
+    cartStore.addItem(product, quantity);
   };
 
   $root.addEventListener("click", handleProductCardClick);
   $root.addEventListener("click", handleCategoryClick);
   $root.addEventListener("click", handleGoToProductListClick);
   $root.addEventListener("click", handelQuantityClick);
+  $root.addEventListener("click", handleAddToCartClick);
   const unMount = () => {
     $root.removeEventListener("click", handleProductCardClick);
     $root.removeEventListener("click", handleCategoryClick);
     $root.removeEventListener("click", handleGoToProductListClick);
     $root.removeEventListener("click", handelQuantityClick);
+    $root.removeEventListener("click", handleAddToCartClick);
     if (runtime.unMount === unMount) runtime.unMount = null;
   };
 
@@ -215,6 +199,37 @@ export const DetailPageComponent = (context = {}) => {
     productQty,
   };
   return buildPageView(props);
+};
+
+const fetchProduct = async (productId) => {
+  runtime.productQty = 1;
+  runtime.setProductQty?.(1);
+  runtime.setMainProductState?.(() => ({
+    loading: true,
+    product: null,
+    relatedProducts: null,
+    error: null,
+  }));
+
+  try {
+    const product = await getProduct(productId);
+    const res_products = await getProducts({ category2: product.category2 });
+    const relatedProducts = res_products.products.filter((item) => item.productId !== product.productId);
+    runtime.setMainProductState?.(() => ({
+      loading: false,
+      product,
+      relatedProducts,
+      error: null,
+    }));
+  } catch (error) {
+    console.error("상품 상세 로딩 실패", error);
+    runtime.setMainProductState?.(() => ({
+      loading: false,
+      product: null,
+      relatedProducts: null,
+      error: "상품을 불러오지 못했습니다.",
+    }));
+  }
 };
 
 DetailPageComponent.mount = mountDetailPage;

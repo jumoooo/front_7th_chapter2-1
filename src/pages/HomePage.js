@@ -4,6 +4,8 @@ import { getCategories, getProducts } from "../api/productApi.js";
 import { parseHomeQuery } from "../utils/urlUtils.js";
 import { useState } from "../lib/hook.js";
 
+import { cartStore } from "../store/cartStore.js";
+import { ModalShell } from "../components/modal/ModalShell.js";
 const DEFAULT_LIMIT = 20;
 let cachedCategories = null;
 
@@ -13,6 +15,7 @@ const runtime = {
   setPagination: null,
   setProducts: null,
   setCategories: null,
+  setSelectProductList: null,
   setIsLoading: null,
   setError: null,
 
@@ -20,6 +23,7 @@ const runtime = {
   pagination: null,
   products: null,
   categories: null,
+  selectProductList: null,
   error: null,
 
   isLoading: false,
@@ -29,6 +33,302 @@ const runtime = {
   reobserveSentinel: null,
 
   unMount: null,
+  cartUnsubscribe: null,
+  isCartSubscribed: false,
+  cartSyncHandler: null,
+};
+
+const buildPageView = (state) => {
+  // ✅ 상태를 기반으로 화면 전체 HTML을 구성한다
+  const { filters, pagination, products, categories, selectProductList, loading, error } = state;
+  return /*html*/ `
+  <div
+    id="home-page"
+    data-current-page="${pagination.page}"
+    data-has-next="${pagination.hasNext ? "true" : "false"}"
+  >
+    ${PageLayout({
+      children: `
+        ${SearchForm({ filters, pagination, categories, loading })}
+        ${error ? `<div class="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">${error}</div>` : ""}
+        <div data-product-list>
+          ${ProductList({ products, pagination, loading })}
+        </div>
+      `,
+    })}
+    ${ModalShell({ productList: selectProductList })}
+  </div>
+  `;
+};
+
+const mountHomePage = () => {
+  // ✅ HomePage가 실제 DOM에 마운트될 때 단 한 번 실행되는 로직
+  const root = document.getElementById("root");
+  if (!root) return () => {};
+
+  runtime.unMount?.();
+  runtime.unMount = null;
+
+  const handleProductCardClick = (event) => {
+    // ✅ 상품 카드를 클릭하면 상세 페이지로 이동한다
+    if (event.target.closest(".add-to-cart-btn")) return;
+    const card = event.target.closest(".product-card");
+    if (!card) return;
+    window.navigate(`/products/${card.dataset.productId}`);
+  };
+
+  const handleCategoryClick = (event) => {
+    // ✅ 카테고리 관련 버튼이 클릭됐는지 검사하고 URL을 갱신한다
+    const resetButton = event.target.closest("[data-breadcrumb='reset']");
+    if (resetButton) {
+      const resetUrl = new URL(window.location.href);
+      resetUrl.searchParams.delete("category1");
+      resetUrl.searchParams.delete("category2");
+      resetUrl.searchParams.set("current", "1");
+      window.navigate(`${resetUrl.pathname}${resetUrl.search}`);
+      return;
+    }
+
+    const firstDepthButton = event.target.closest(".category1-filter-btn");
+    if (firstDepthButton) {
+      const firstUrl = new URL(window.location.href);
+      firstUrl.searchParams.set("category1", firstDepthButton.dataset.category1 ?? "");
+      firstUrl.searchParams.delete("category2");
+      firstUrl.searchParams.delete("search");
+      firstUrl.searchParams.set("current", "1");
+      window.navigate(`${firstUrl.pathname}${firstUrl.search}`);
+      return;
+    }
+
+    const breadcrumbCategory1 = event.target.closest("[data-breadcrumb='category1']");
+    if (breadcrumbCategory1) {
+      const breadcrumbUrl = new URL(window.location.href);
+      breadcrumbUrl.searchParams.set("category1", breadcrumbCategory1.dataset.category1 ?? "");
+      breadcrumbUrl.searchParams.delete("category2");
+      breadcrumbUrl.searchParams.set("current", "1");
+      window.navigate(`${breadcrumbUrl.pathname}${breadcrumbUrl.search}`);
+      return;
+    }
+
+    const breadcrumbCategory2 = event.target.closest("[data-breadcrumb='category2']");
+    if (breadcrumbCategory2) {
+      const breadcrumbUrl = new URL(window.location.href);
+      const breadcrumbCat1 = breadcrumbCategory2.dataset.category1 ?? "";
+      const breadcrumbCat2 = breadcrumbCategory2.dataset.category2 ?? "";
+      if (breadcrumbCat1) breadcrumbUrl.searchParams.set("category1", breadcrumbCat1);
+      if (breadcrumbCat2) {
+        breadcrumbUrl.searchParams.set("category2", breadcrumbCat2);
+      } else {
+        breadcrumbUrl.searchParams.delete("category2");
+      }
+      breadcrumbUrl.searchParams.set("current", "1");
+      window.navigate(`${breadcrumbUrl.pathname}${breadcrumbUrl.search}`);
+      return;
+    }
+
+    const button = event.target.closest(".category2-filter-btn");
+    // ✅ 2차 카테고리 버튼을 선택하면 검색어를 초기화하고 URL을 변경한다
+    if (!button) return;
+    const currentUrl = new URL(window.location.href);
+    const category1 = button.dataset.category1 ?? "";
+    const category2 = button.dataset.category2 ?? "";
+    if (category1) currentUrl.searchParams.set("category1", category1);
+    if (category2) {
+      currentUrl.searchParams.set("category2", category2);
+    } else {
+      currentUrl.searchParams.delete("category2");
+    }
+    currentUrl.searchParams.delete("search");
+    currentUrl.searchParams.set("current", "1");
+    window.navigate(`${currentUrl.pathname}${currentUrl.search}`);
+  };
+
+  const handleLimitChange = (event) => {
+    // ✅ 페이지당 노출 개수 변경 시 첫 페이지로 이동한다
+    if (event.target.id !== "limit-select") return;
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.set("limit", event.target.value);
+    currentUrl.searchParams.set("current", "1");
+    window.navigate(`${currentUrl.pathname}${currentUrl.search}`);
+  };
+
+  const handleSortChange = (event) => {
+    // ✅ 정렬 옵션을 변경하면 첫 페이지부터 다시 조회한다
+    if (event.target.id !== "sort-select") return;
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.set("sort", event.target.value);
+    currentUrl.searchParams.set("current", "1");
+    window.navigate(`${currentUrl.pathname}${currentUrl.search}`);
+  };
+
+  const handleSearchSubmit = (event) => {
+    // ✅ 검색어 입력 후 제출하면 쿼리를 치환한다
+    const searchForm = event.target.closest("form[data-search-form]");
+    if (!searchForm) return;
+    event.preventDefault();
+
+    const formData = new FormData(searchForm);
+    const searchKeyword = (formData.get("search") ?? "").toString().trim();
+    const currentUrl = new URL(window.location.href);
+
+    if (searchKeyword) {
+      currentUrl.searchParams.set("search", searchKeyword);
+    } else {
+      currentUrl.searchParams.delete("search");
+    }
+    currentUrl.searchParams.set("current", "1");
+
+    window.navigate(`${currentUrl.pathname}${currentUrl.search}`);
+  };
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        // ✅ sentinel이 화면 근처로 오면 다음 페이지를 요청한다
+        if (!entry.isIntersecting) return;
+        if (!runtime.pagination?.hasNext) return;
+        requestLoadMore();
+      });
+    },
+    { rootMargin: "200px" },
+  );
+
+  const observeSentinel = () => {
+    observer.disconnect();
+    const sentinel = root.querySelector("[data-observer-target]");
+    if (sentinel) observer.observe(sentinel);
+  };
+
+  const handleCartModal = (event) => {
+    // 장바구니 모달
+    const modal = document.querySelector(".cart-modal");
+    if (!modal) return;
+
+    const openButton = event.target.closest("#cart-icon-btn");
+    const closeButton = event.target.closest("#cart-modal-close-btn");
+    const overlayClicked = event.target.closest(".cart-modal-overlay");
+
+    if (openButton) {
+      modal.classList.remove("hidden");
+      return;
+    }
+
+    if (closeButton || overlayClicked) {
+      modal.classList.add("hidden");
+    }
+  };
+
+  root.addEventListener("click", handleProductCardClick);
+  root.addEventListener("click", handleCategoryClick);
+  root.addEventListener("change", handleLimitChange);
+  root.addEventListener("change", handleSortChange);
+  root.addEventListener("submit", handleSearchSubmit);
+  root.addEventListener("click", handleCartModal);
+
+  runtime.reobserveSentinel = () => {
+    window.requestAnimationFrame(() => observeSentinel());
+  };
+  runtime.reobserveSentinel();
+
+  const unMount = () => {
+    root.removeEventListener("click", handleProductCardClick);
+    root.removeEventListener("click", handleCategoryClick);
+    root.removeEventListener("change", handleLimitChange);
+    root.removeEventListener("change", handleSortChange);
+    root.removeEventListener("submit", handleSearchSubmit);
+    root.removeEventListener("click", handleCartModal);
+    observer.disconnect();
+    runtime.reobserveSentinel = null;
+    if (runtime.unMount === unMount) runtime.unMount = null;
+    const modal = document.querySelector(".cart-modal");
+    if (modal) modal.classList.add("hidden");
+    runtime.cartUnsubscribe?.();
+    runtime.cartUnsubscribe = null;
+    runtime.isCartSubscribed = false;
+  };
+
+  runtime.unMount = unMount;
+  return unMount;
+};
+
+export const HomePageComponent = () => {
+  // ✅ URL 쿼리를 참고해 훅 초기값을 준비한다
+  const homeQuery = parseHomeQuery(DEFAULT_LIMIT);
+  const initialFilters = {
+    search: homeQuery.search ?? "",
+    category1: homeQuery.category1 ?? "",
+    category2: homeQuery.category2 ?? "",
+    sort: homeQuery.sort ?? "",
+  };
+  const initialPagination = {
+    page: homeQuery.current ?? 1,
+    limit: homeQuery.limit ?? DEFAULT_LIMIT,
+    total: 0,
+    hasNext: false,
+  };
+
+  const [filters, setFilters] = useState(initialFilters);
+  const [pagination, setPagination] = useState(initialPagination);
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
+  const [selectProductList, setSelectProductList] = useState(cartStore.getState());
+
+  runtime.setFilters = setFilters;
+  runtime.setPagination = setPagination;
+  runtime.setProducts = setProducts;
+  runtime.setCategories = setCategories;
+  runtime.setSelectProductList = setSelectProductList;
+  runtime.setIsLoading = setIsLoading;
+  runtime.setError = setError;
+
+  runtime.filters = filters;
+  runtime.pagination = pagination;
+  runtime.products = products;
+  runtime.categories = categories;
+  runtime.selectProductList = selectProductList;
+  runtime.isLoading = isLoading;
+  runtime.error = error;
+
+  if (!runtime.isCartSubscribed) {
+    runtime.cartSyncHandler ??= (nextCartItems) => {
+      runtime.setSelectProductList?.(nextCartItems);
+    };
+    runtime.cartUnsubscribe = cartStore.subscribe(runtime.cartSyncHandler);
+    runtime.isCartSubscribed = true;
+  }
+
+  const currentSearch = window.location.search;
+  // ✅ 뒤로가기 등으로 URL이 바뀌면 다시 초기화하도록 플래그를 조정
+  if (runtime.lastKnownSearch !== currentSearch && hasInitialized) {
+    setHasInitialized(false);
+  }
+
+  if (!hasInitialized) {
+    // ✅ 처음 렌더되거나 URL이 변경된 직후 데이터를 재요청한다
+    runtime.lastKnownSearch = currentSearch;
+    setHasInitialized(true);
+    setFilters(initialFilters);
+    setPagination(initialPagination);
+    setProducts([]);
+    setCategories({});
+    setError(null);
+    loadInitialData(buildProductQuery(initialFilters, initialPagination));
+  }
+
+  runtime.reobserveSentinel?.();
+
+  return buildPageView({
+    filters,
+    pagination,
+    categories,
+    products,
+    selectProductList,
+    loading: isLoading,
+    error,
+  });
 };
 
 const ensureCategories = async () => {
@@ -180,259 +480,6 @@ const requestLoadMore = () => {
     .finally(() => {
       runtime.isLoadingMore = false;
     });
-};
-
-const mountHomePage = () => {
-  // ✅ HomePage가 실제 DOM에 마운트될 때 단 한 번 실행되는 로직
-  const root = document.getElementById("root");
-  if (!root) return () => {};
-
-  runtime.unMount?.();
-  runtime.unMount = null;
-
-  const handleProductCardClick = (event) => {
-    // ✅ 상품 카드를 클릭하면 상세 페이지로 이동한다
-    const card = event.target.closest(".product-card");
-    if (!card) return;
-    window.navigate(`/products/${card.dataset.productId}`);
-  };
-
-  const handleCategoryClick = (event) => {
-    // ✅ 카테고리 관련 버튼이 클릭됐는지 검사하고 URL을 갱신한다
-    const resetButton = event.target.closest("[data-breadcrumb='reset']");
-    if (resetButton) {
-      const resetUrl = new URL(window.location.href);
-      resetUrl.searchParams.delete("category1");
-      resetUrl.searchParams.delete("category2");
-      resetUrl.searchParams.set("current", "1");
-      window.navigate(`${resetUrl.pathname}${resetUrl.search}`);
-      return;
-    }
-
-    const firstDepthButton = event.target.closest(".category1-filter-btn");
-    if (firstDepthButton) {
-      const firstUrl = new URL(window.location.href);
-      firstUrl.searchParams.set("category1", firstDepthButton.dataset.category1 ?? "");
-      firstUrl.searchParams.delete("category2");
-      firstUrl.searchParams.delete("search");
-      firstUrl.searchParams.set("current", "1");
-      window.navigate(`${firstUrl.pathname}${firstUrl.search}`);
-      return;
-    }
-
-    const breadcrumbCategory1 = event.target.closest("[data-breadcrumb='category1']");
-    if (breadcrumbCategory1) {
-      const breadcrumbUrl = new URL(window.location.href);
-      breadcrumbUrl.searchParams.set("category1", breadcrumbCategory1.dataset.category1 ?? "");
-      breadcrumbUrl.searchParams.delete("category2");
-      breadcrumbUrl.searchParams.set("current", "1");
-      window.navigate(`${breadcrumbUrl.pathname}${breadcrumbUrl.search}`);
-      return;
-    }
-
-    const breadcrumbCategory2 = event.target.closest("[data-breadcrumb='category2']");
-    if (breadcrumbCategory2) {
-      const breadcrumbUrl = new URL(window.location.href);
-      const breadcrumbCat1 = breadcrumbCategory2.dataset.category1 ?? "";
-      const breadcrumbCat2 = breadcrumbCategory2.dataset.category2 ?? "";
-      if (breadcrumbCat1) breadcrumbUrl.searchParams.set("category1", breadcrumbCat1);
-      if (breadcrumbCat2) {
-        breadcrumbUrl.searchParams.set("category2", breadcrumbCat2);
-      } else {
-        breadcrumbUrl.searchParams.delete("category2");
-      }
-      breadcrumbUrl.searchParams.set("current", "1");
-      window.navigate(`${breadcrumbUrl.pathname}${breadcrumbUrl.search}`);
-      return;
-    }
-
-    const button = event.target.closest(".category2-filter-btn");
-    // ✅ 2차 카테고리 버튼을 선택하면 검색어를 초기화하고 URL을 변경한다
-    if (!button) return;
-    const currentUrl = new URL(window.location.href);
-    const category1 = button.dataset.category1 ?? "";
-    const category2 = button.dataset.category2 ?? "";
-    if (category1) currentUrl.searchParams.set("category1", category1);
-    if (category2) {
-      currentUrl.searchParams.set("category2", category2);
-    } else {
-      currentUrl.searchParams.delete("category2");
-    }
-    currentUrl.searchParams.delete("search");
-    currentUrl.searchParams.set("current", "1");
-    window.navigate(`${currentUrl.pathname}${currentUrl.search}`);
-  };
-
-  const handleLimitChange = (event) => {
-    // ✅ 페이지당 노출 개수 변경 시 첫 페이지로 이동한다
-    if (event.target.id !== "limit-select") return;
-    const currentUrl = new URL(window.location.href);
-    currentUrl.searchParams.set("limit", event.target.value);
-    currentUrl.searchParams.set("current", "1");
-    window.navigate(`${currentUrl.pathname}${currentUrl.search}`);
-  };
-
-  const handleSortChange = (event) => {
-    // ✅ 정렬 옵션을 변경하면 첫 페이지부터 다시 조회한다
-    if (event.target.id !== "sort-select") return;
-    const currentUrl = new URL(window.location.href);
-    currentUrl.searchParams.set("sort", event.target.value);
-    currentUrl.searchParams.set("current", "1");
-    window.navigate(`${currentUrl.pathname}${currentUrl.search}`);
-  };
-
-  const handleSearchSubmit = (event) => {
-    // ✅ 검색어 입력 후 제출하면 쿼리를 치환한다
-    const searchForm = event.target.closest("form[data-search-form]");
-    if (!searchForm) return;
-    event.preventDefault();
-
-    const formData = new FormData(searchForm);
-    const searchKeyword = (formData.get("search") ?? "").toString().trim();
-    const currentUrl = new URL(window.location.href);
-
-    if (searchKeyword) {
-      currentUrl.searchParams.set("search", searchKeyword);
-    } else {
-      currentUrl.searchParams.delete("search");
-    }
-    currentUrl.searchParams.set("current", "1");
-
-    window.navigate(`${currentUrl.pathname}${currentUrl.search}`);
-  };
-
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        // ✅ sentinel이 화면 근처로 오면 다음 페이지를 요청한다
-        if (!entry.isIntersecting) return;
-        if (!runtime.pagination?.hasNext) return;
-        requestLoadMore();
-      });
-    },
-    { rootMargin: "200px" },
-  );
-
-  const observeSentinel = () => {
-    observer.disconnect();
-    const sentinel = root.querySelector("[data-observer-target]");
-    if (sentinel) observer.observe(sentinel);
-  };
-
-  root.addEventListener("click", handleProductCardClick);
-  root.addEventListener("click", handleCategoryClick);
-  root.addEventListener("change", handleLimitChange);
-  root.addEventListener("change", handleSortChange);
-  root.addEventListener("submit", handleSearchSubmit);
-
-  runtime.reobserveSentinel = () => {
-    window.requestAnimationFrame(() => observeSentinel());
-  };
-  runtime.reobserveSentinel();
-
-  const unMount = () => {
-    root.removeEventListener("click", handleProductCardClick);
-    root.removeEventListener("click", handleCategoryClick);
-    root.removeEventListener("change", handleLimitChange);
-    root.removeEventListener("change", handleSortChange);
-    root.removeEventListener("submit", handleSearchSubmit);
-    observer.disconnect();
-    runtime.reobserveSentinel = null;
-    if (runtime.unMount === unMount) runtime.unMount = null;
-  };
-
-  runtime.unMount = unMount;
-  return unMount;
-};
-
-const buildPageView = (state) => {
-  // ✅ 상태를 기반으로 화면 전체 HTML을 구성한다
-  const { filters, pagination, products, categories, loading, error } = state;
-  return /*html*/ `
-  <div
-    id="home-page"
-    data-current-page="${pagination.page}"
-    data-has-next="${pagination.hasNext ? "true" : "false"}"
-  >
-    ${PageLayout({
-      children: `
-        ${SearchForm({ filters, pagination, categories, loading })}
-        ${error ? `<div class="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">${error}</div>` : ""}
-        <div data-product-list>
-          ${ProductList({ products, pagination, loading })}
-        </div>
-      `,
-    })}
-  </div>
-  `;
-};
-
-export const HomePageComponent = () => {
-  // ✅ URL 쿼리를 참고해 훅 초기값을 준비한다
-  const homeQuery = parseHomeQuery(DEFAULT_LIMIT);
-  const initialFilters = {
-    search: homeQuery.search ?? "",
-    category1: homeQuery.category1 ?? "",
-    category2: homeQuery.category2 ?? "",
-    sort: homeQuery.sort ?? "",
-  };
-  const initialPagination = {
-    page: homeQuery.current ?? 1,
-    limit: homeQuery.limit ?? DEFAULT_LIMIT,
-    total: 0,
-    hasNext: false,
-  };
-
-  const [filters, setFilters] = useState(initialFilters);
-  const [pagination, setPagination] = useState(initialPagination);
-  const [products, setProducts] = useState([]);
-  const [categories, setCategories] = useState({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [hasInitialized, setHasInitialized] = useState(false);
-
-  runtime.setFilters = setFilters;
-  runtime.setPagination = setPagination;
-  runtime.setProducts = setProducts;
-  runtime.setCategories = setCategories;
-  runtime.setIsLoading = setIsLoading;
-  runtime.setError = setError;
-
-  runtime.filters = filters;
-  runtime.pagination = pagination;
-  runtime.products = products;
-  runtime.categories = categories;
-  runtime.isLoading = isLoading;
-  runtime.error = error;
-
-  const currentSearch = window.location.search;
-  // ✅ 뒤로가기 등으로 URL이 바뀌면 다시 초기화하도록 플래그를 조정
-  if (runtime.lastKnownSearch !== currentSearch && hasInitialized) {
-    setHasInitialized(false);
-  }
-
-  if (!hasInitialized) {
-    // ✅ 처음 렌더되거나 URL이 변경된 직후 데이터를 재요청한다
-    runtime.lastKnownSearch = currentSearch;
-    setHasInitialized(true);
-    setFilters(initialFilters);
-    setPagination(initialPagination);
-    setProducts([]);
-    setCategories({});
-    setError(null);
-    loadInitialData(buildProductQuery(initialFilters, initialPagination));
-  }
-
-  runtime.reobserveSentinel?.();
-
-  return buildPageView({
-    filters,
-    pagination,
-    categories,
-    products,
-    loading: isLoading,
-    error,
-  });
 };
 
 HomePageComponent.mount = mountHomePage;
