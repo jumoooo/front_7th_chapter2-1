@@ -200,8 +200,8 @@ const mountHomePage = () => {
     if (sentinel) observer.observe(sentinel);
   };
 
+  // 장바구니 모달 열기
   const handleCartModal = (event) => {
-    // 장바구니 모달 열기
     if (event.target.closest(".cart-item-remove-btn")) return;
     const modal = document.querySelector(".cart-modal");
     if (!modal) return;
@@ -222,6 +222,7 @@ const mountHomePage = () => {
     }
   };
 
+  // ✅ 장바구니 상품에서 삭제 버튼을 클릭하면 장바구니에서 제거한다
   const handleRemoveCartItem = (event) => {
     const removeButton = event.target.closest(".cart-item-remove-btn");
     if (!removeButton) return;
@@ -240,6 +241,7 @@ const mountHomePage = () => {
     cartStore.removeItem(productId);
   };
 
+  // ✅ 상품 카드에서 장바구니 버튼을 클릭하면 장바구니에 추가한다
   const handleAddToCartFromList = (event) => {
     const addButton = event.target.closest(".add-to-cart-btn");
     if (!addButton) return;

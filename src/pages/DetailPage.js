@@ -8,6 +8,7 @@ import { ProductDetailLoading } from "../components/productDetail/ProductDetailL
 import { ProductBreadcrumb } from "../components/productDetail/ProductBreadcrumb.js";
 import { ProductDetailInfo } from "../components/productDetail/ProductDetailInfo.js";
 import { RelatedProductsList } from "../components/productDetail/RelatedProductsList.js";
+import { ModalShell } from "../components/modal/ModalShell.js";
 
 const runtime = {
   setMainProductState: null, // 상품 상세 상태 설정 핸들러
@@ -20,7 +21,7 @@ const runtime = {
 };
 
 const buildPageView = (state) => {
-  const { loading, product, relatedProducts, error, productQty } = state;
+  const { loading, product, relatedProducts, error, productQty, selectProductList } = state;
   if (error) throw new Error(error);
   const safeProduct = product ?? {};
 
@@ -80,6 +81,7 @@ const buildPageView = (state) => {
           ${relatedProducts ? RelatedProductsList(relatedProducts) : ""}
         </div>
       </main>
+      ${ModalShell({ productList: selectProductList })}
     `,
   });
 };
@@ -147,6 +149,29 @@ const mountDetailPage = () => {
     if (!product) return;
     const quantity = runtime.productQty ?? 1;
     cartStore.addItem(product, quantity);
+    runtime.setProductQty?.(1);
+  };
+
+  const handleCartModal = (event) => {
+    // 장바구니 모달 열기
+    if (event.target.closest(".cart-item-remove-btn")) return;
+    const modal = document.querySelector(".cart-modal");
+    if (!modal) return;
+
+    const openButton = event.target.closest("#cart-icon-btn");
+    const closeButton = event.target.closest("#cart-modal-close-btn");
+    const overlayClicked = event.target.closest(".cart-modal-overlay");
+
+    if (openButton) {
+      modal.classList.remove("hidden");
+      runtime.isCartModalOpen = true;
+      return;
+    }
+
+    if (closeButton || overlayClicked) {
+      modal.classList.add("hidden");
+      runtime.isCartModalOpen = false;
+    }
   };
 
   $root.addEventListener("click", handleProductCardClick);
@@ -154,12 +179,14 @@ const mountDetailPage = () => {
   $root.addEventListener("click", handleGoToProductListClick);
   $root.addEventListener("click", handelQuantityClick);
   $root.addEventListener("click", handleAddToCartClick);
+  $root.addEventListener("click", handleCartModal);
   const unMount = () => {
     $root.removeEventListener("click", handleProductCardClick);
     $root.removeEventListener("click", handleCategoryClick);
     $root.removeEventListener("click", handleGoToProductListClick);
     $root.removeEventListener("click", handelQuantityClick);
     $root.removeEventListener("click", handleAddToCartClick);
+    $root.removeEventListener("click", handleCartModal);
     if (runtime.unMount === unMount) runtime.unMount = null;
   };
 
@@ -194,9 +221,12 @@ export const DetailPageComponent = (context = {}) => {
       runtime.isFetching = false;
     });
   }
+
+  const selectProductList = cartStore.getState();
   const props = {
     ...mainProductState,
     productQty,
+    selectProductList,
   };
   return buildPageView(props);
 };
