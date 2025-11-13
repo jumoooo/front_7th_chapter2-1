@@ -5,6 +5,9 @@ window.navigate = navigate;
 const enableMocking = () =>
   import("./mocks/browser.js").then(({ worker }) =>
     worker.start({
+      serviceWorker: {
+        url: `${import.meta.env.BASE_URL}mockServiceWorker.js`,
+      },
       onUnhandledRequest: "bypass",
     }),
   );
